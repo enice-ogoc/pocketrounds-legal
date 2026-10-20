@@ -1,7 +1,9 @@
-name: Deploy privacy policy
+name: Deploy privacy policy (manual only)
+# PR-LAUNCH-1 LEGAL-BRANCH 2026-10-20: the live site is served from the gh-pages
+# branch (legacy Pages build). Push-to-main deploys are disabled so main can't
+# overwrite gh-pages-only pages (email-confirmed, password-reset, support).
+# Do not run this by hand until main and gh-pages are reconciled.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read
