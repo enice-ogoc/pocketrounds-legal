@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the six PocketRounds share landing pages.
+"""Generate the PocketRounds share landing pages.
 
 One template, one per-type table, one site constant. Re-run from the repo root:
 
@@ -13,6 +13,10 @@ from pathlib import Path
 
 # One base URL. A later domain move changes this value and regenerates the pages.
 SITE = "https://enice-ogoc.github.io/pocketrounds-legal"
+# Empty means no TestFlight link is rendered on any page.
+TESTFLIGHT_PUBLIC_URL = ""
+# Empty keeps the testing sentence. A URL replaces that sentence with an App Store button.
+APP_STORE_URL = ""
 
 DESCRIPTION = "Bible Bowl practice for players, coaches and teams. Tap to join."
 TESTING = (
@@ -26,42 +30,49 @@ PAGES = [
     {
         "path": "/i/player/",
         "title": "PocketRounds: Player invite",
-        "image": "og-player-v2.png",
+        "image": "og-invite-player.png",
         "alt": "PocketRounds Player invite",
         "label": "Player invite",
     },
     {
         "path": "/i/member/",
         "title": "PocketRounds: Team invite",
-        "image": "og-member-v2.png",
+        "image": "og-invite-member.png",
         "alt": "PocketRounds Team invite",
         "label": "Team invite",
     },
     {
         "path": "/i/coach/",
         "title": "PocketRounds: Coach invite",
-        "image": "og-coach-v2.png",
+        "image": "og-invite-coach.png",
         "alt": "PocketRounds Coach invite",
         "label": "Coach invite",
     },
     {
         "path": "/i/sponsor/",
         "title": "PocketRounds: Sponsor admin invite",
-        "image": "og-sponsor-v2.png",
+        "image": "og-invite-sponsor-admin.png",
         "alt": "PocketRounds Sponsor admin invite",
         "label": "Sponsor admin invite",
     },
     {
         "path": "/i/host/",
         "title": "PocketRounds: Host admin invite",
-        "image": "og-host-v2.png",
+        "image": "og-invite-host-admin.png",
         "alt": "PocketRounds Host admin invite",
         "label": "Host admin invite",
     },
     {
+        "path": "/i/event/",
+        "title": "PocketRounds: Event invite",
+        "image": "og-invite-event.png",
+        "alt": "PocketRounds Event invite",
+        "label": "Event invite",
+    },
+    {
         "path": "/app/",
         "title": "PocketRounds: Bible Bowl practice",
-        "image": "og-app-v2.png",
+        "image": "og-share-app.png",
         "alt": "PocketRounds Bible Bowl practice",
         "label": None,
     },
@@ -191,7 +202,7 @@ TEMPLATE = """<!DOCTYPE html>
       overflow-wrap: anywhere;
     }
     .copy-row { margin: 0.9rem 0 0; }
-    button, .open {
+    button, .open, .store {
       font: inherit;
       font-weight: 700;
       min-height: 48px;
@@ -206,7 +217,7 @@ TEMPLATE = """<!DOCTYPE html>
       padding: 0.65rem 1.1rem;
       cursor: pointer;
     }
-    .open {
+    .open, .store {
       display: inline-flex;
       align-items: center;
       justify-content: center;
@@ -216,6 +227,9 @@ TEMPLATE = """<!DOCTYPE html>
       color: #071428;
       text-decoration: none;
     }
+    .store { margin-top: 0.95rem; }
+    .tf { margin: 0.85rem 0 0; }
+    .tf a { color: var(--accent); font-weight: 700; }
     #fallback, .testing {
       color: var(--muted);
       font-size: 1rem;
@@ -241,7 +255,7 @@ TEMPLATE = """<!DOCTYPE html>
     <p class="copy-row"><button type="button" id="copy" hidden>Copy</button></p>
     <p id="fallback">__FALLBACK__</p>
     <a class="open" id="open" href="__URL__">Open PocketRounds</a>
-    <p class="testing">__TESTING__</p>
+    __INSTALL__
   </main>
   <footer>
     <a href="__SUPPORT__">Support</a>
@@ -290,6 +304,24 @@ TEMPLATE = """<!DOCTYPE html>
 """
 
 
+def install_block(testflight_url: str = TESTFLIGHT_PUBLIC_URL, app_store_url: str = APP_STORE_URL) -> str:
+    """Button area under Open PocketRounds.
+
+    An App Store URL replaces the testing sentence. A TestFlight URL adds a
+    link only while that sentence is showing. Empty strings render neither link.
+    """
+    store = app_store_url.strip()
+    if store:
+        href = html.escape(store, quote=True)
+        return f'<a class="store" href="{href}">App Store</a>'
+    block = f'<p class="testing">{html.escape(TESTING)}</p>'
+    flight = testflight_url.strip()
+    if flight:
+        href = html.escape(flight, quote=True)
+        block += f'\n    <p class="tf"><a href="{href}">Join on TestFlight</a></p>'
+    return block
+
+
 def render(page: dict) -> str:
     label = page["label"]
     label_html = (
@@ -303,7 +335,7 @@ def render(page: dict) -> str:
         "__ALT__": html.escape(page["alt"], quote=True),
         "__LABEL__": label_html,
         "__FALLBACK__": html.escape(FALLBACK),
-        "__TESTING__": html.escape(TESTING),
+        "__INSTALL__": install_block(TESTFLIGHT_PUBLIC_URL, APP_STORE_URL),
         "__SUPPORT__": html.escape(support_url(), quote=True),
     }
     text = TEMPLATE

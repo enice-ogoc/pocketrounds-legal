@@ -18,12 +18,15 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from build_share_pages import (  # noqa: E402
+    APP_STORE_URL,
     DESCRIPTION,
     FALLBACK,
     PAGES,
     SITE,
+    TESTFLIGHT_PUBLIC_URL,
     TESTING,
     image_url,
+    install_block,
     output_path,
     page_url,
     render,
@@ -134,6 +137,37 @@ def png_info(path: Path) -> tuple[int, int, int]:
     return width, height, len(data)
 
 
+def check_install_slots(failures: list[str], lines: list[str]) -> None:
+    """The two URL slots stay empty until someone sets them. Prove both branches."""
+    lines.append("Install slots")
+    flight = "https://testflight.apple.com/join/example"
+    store = "https://apps.apple.com/app/example"
+    empty = install_block("", "")
+    flight_only = install_block(flight, "")
+    store_only = install_block("", store)
+    both = install_block(flight, "  " + store + "  ")
+    slot_problems: list[str] = []
+    if "testflight" in empty.lower() or "App Store" in empty or TESTING not in empty:
+        slot_problems.append("empty slots should be the testing sentence only")
+    if flight not in flight_only or "Join on TestFlight" not in flight_only or TESTING not in flight_only:
+        slot_problems.append("TestFlight URL should add a link under the testing sentence")
+    if store not in store_only or "App Store" not in store_only or TESTING in store_only:
+        slot_problems.append("App Store URL should replace the testing sentence")
+    if "testflight" in store_only.lower():
+        slot_problems.append("App Store block should not include a TestFlight link")
+    if store not in both or TESTING in both or "testflight" in both.lower():
+        slot_problems.append("App Store URL should replace the testing block even if TestFlight is set")
+    if slot_problems:
+        failures.extend(slot_problems)
+        for item in slot_problems:
+            lines.append("  FAIL " + item)
+    else:
+        lines.append("  ok   empty -> testing copy, no TestFlight link, no App Store button")
+        lines.append("  ok   TestFlight URL -> link under the testing copy")
+        lines.append("  ok   App Store URL -> App Store button in place of the testing copy")
+    lines.append("")
+
+
 def check_pages(failures: list[str], lines: list[str]) -> None:
     lines.append("Pages")
     for page in PAGES:
@@ -208,16 +242,35 @@ def check_pages(failures: list[str], lines: list[str]) -> None:
         elif 'class="label"' in actual:
             problems.append("app page has a label strip")
         text = "".join(parser.text_parts)
-        if FALLBACK not in text or TESTING not in text:
-            problems.append("missing landing copy")
+        lowered = actual.lower()
+        if FALLBACK not in text:
+            problems.append("missing code fallback")
         if "Open PocketRounds" not in text:
             problems.append("missing Open PocketRounds")
+        store = APP_STORE_URL.strip()
+        flight = TESTFLIGHT_PUBLIC_URL.strip()
+        if store:
+            if TESTING in text:
+                problems.append("testing copy still present")
+            if f'href="{store}"' not in actual or "App Store" not in text:
+                problems.append("missing App Store button")
+            if "testflight" in lowered:
+                problems.append("TestFlight link rendered beside App Store")
+        else:
+            if TESTING not in text:
+                problems.append("missing testing copy")
+            if "app store" in lowered:
+                problems.append("App Store button rendered while APP_STORE_URL is empty")
+            if flight:
+                if f'href="{flight}"' not in actual or "Join on TestFlight" not in text:
+                    problems.append("missing TestFlight link")
+            elif "testflight" in lowered:
+                problems.append("TestFlight link rendered while TESTFLIGHT_PUBLIC_URL is empty")
         open_link = parser.ids.get("open", {})
         if open_link.get("href") != url:
             problems.append(f"open href {open_link.get('href')!r}")
         if support_url() not in actual:
             problems.append("missing support link")
-        lowered = actual.lower()
         for snippet in ("fetch(", "xmlhttprequest", "mailto:", "http://", "<img", "script src"):
             if snippet in lowered:
                 problems.append(f"unexpected {snippet}")
@@ -236,8 +289,8 @@ def check_pages(failures: list[str], lines: list[str]) -> None:
                 problems.append(f"image {width}x{height}")
             if size >= MAX_IMAGE_BYTES:
                 problems.append(f"image {size} bytes")
-            if not page["image"].endswith("-v2.png"):
-                problems.append("image is not a v2 file")
+            if page["image"].endswith(("-v1.png", "-v2.png")):
+                problems.append("image uses a retired versioned name")
 
         if problems:
             failures.extend(f"{rel}: {item}" for item in problems)
@@ -289,15 +342,22 @@ def check_banned(failures: list[str], lines: list[str]) -> None:
         lines.append("  new hits  none")
 
 
-def check_no_v1(failures: list[str], lines: list[str]) -> None:
-    v1 = sorted((ROOT / "og").glob("*-v1.png")) if (ROOT / "og").is_dir() else []
+def check_retired_images(failures: list[str], lines: list[str]) -> None:
     lines.append("")
-    lines.append("Placeholder v1 images")
-    if v1:
-        for path in v1:
+    lines.append("Retired versioned images")
+    og = ROOT / "og"
+    retired = sorted(og.glob("*-v1.png")) + sorted(og.glob("*-v2.png")) if og.is_dir() else []
+    expected = {page["image"] for page in PAGES}
+    present = {path.name for path in og.glob("*.png")} if og.is_dir() else set()
+    missing = sorted(expected - present)
+    if retired or missing:
+        for path in retired:
             rel = path.relative_to(ROOT).as_posix()
             failures.append("unexpected " + rel)
             lines.append("  NEW  " + rel)
+        for name in missing:
+            failures.append("missing og/" + name)
+            lines.append("  MISSING  og/" + name)
     else:
         lines.append("  none")
 
@@ -307,11 +367,14 @@ def main() -> int:
     lines = [
         "PocketRounds share-page check",
         f"SITE = {SITE}",
+        f"TESTFLIGHT_PUBLIC_URL = {TESTFLIGHT_PUBLIC_URL!r}",
+        f"APP_STORE_URL = {APP_STORE_URL!r}",
         "",
     ]
+    check_install_slots(failures, lines)
     check_pages(failures, lines)
     check_banned(failures, lines)
-    check_no_v1(failures, lines)
+    check_retired_images(failures, lines)
     lines.append("")
     if failures:
         lines.append(f"RESULT: FAIL ({len(failures)})")
