@@ -18,6 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from build_share_pages import (  # noqa: E402
+    AFTER_INSTALL,
     APP_STORE_URL,
     DESCRIPTION,
     FALLBACK,
@@ -151,7 +152,12 @@ def check_install_slots(failures: list[str], lines: list[str]) -> None:
         slot_problems.append("empty slots should be the testing sentence only")
     if flight not in flight_only or "Join on TestFlight" not in flight_only or TESTING not in flight_only:
         slot_problems.append("TestFlight URL should add a link under the testing sentence")
-    if store not in store_only or "App Store" not in store_only or TESTING in store_only:
+    if (
+        store not in store_only
+        or "App Store" not in store_only
+        or AFTER_INSTALL not in store_only
+        or TESTING in store_only
+    ):
         slot_problems.append("App Store URL should replace the testing sentence")
     if "testflight" in store_only.lower():
         slot_problems.append("App Store block should not include a TestFlight link")
@@ -252,6 +258,8 @@ def check_pages(failures: list[str], lines: list[str]) -> None:
         if store:
             if TESTING in text:
                 problems.append("testing copy still present")
+            if AFTER_INSTALL not in text:
+                problems.append("missing after-install copy")
             if f'href="{store}"' not in actual or "App Store" not in text:
                 problems.append("missing App Store button")
             if "testflight" in lowered:
@@ -267,10 +275,18 @@ def check_pages(failures: list[str], lines: list[str]) -> None:
             elif "testflight" in lowered:
                 problems.append("TestFlight link rendered while TESTFLIGHT_PUBLIC_URL is empty")
         open_link = parser.ids.get("open", {})
-        if open_link.get("href") != url:
+        if open_link.get("href") != url or not url.endswith("/"):
             problems.append(f"open href {open_link.get('href')!r}")
         if support_url() not in actual:
             problems.append("missing support link")
+        if "http-equiv" in lowered or "location.replace" in lowered or "location.href" in lowered:
+            problems.append("page redirects")
+        hash_at = actual.find("function accepted")
+        query_at = actual.find("URLSearchParams")
+        if hash_at < 0 or query_at < 0 or hash_at > query_at:
+            problems.append("code reader must accept #c= and fall back to ?code=")
+        if page["path"] == "/i/member/" and page["image"] != "og-member-v2.png":
+            problems.append("member page is not the Team invite mirror")
         for snippet in ("fetch(", "xmlhttprequest", "mailto:", "http://", "<img", "script src"):
             if snippet in lowered:
                 problems.append(f"unexpected {snippet}")
@@ -279,18 +295,21 @@ def check_pages(failures: list[str], lines: list[str]) -> None:
                 problems.append(f"banned phrase in page: {phrase}")
 
         image_path = ROOT / "og" / page["image"]
-        try:
-            width, height, size = png_info(image_path)
-        except (OSError, ValueError) as exc:
-            problems.append(f"image {exc}")
-            width = height = size = 0
+        width = height = size = 0
+        if not page["image"].endswith("-v2.png"):
+            problems.append("image is not a v2 file")
+        if not image_path.is_file():
+            problems.append(f"missing image og/{page['image']}")
         else:
-            if (width, height) != (1200, 630):
-                problems.append(f"image {width}x{height}")
-            if size >= MAX_IMAGE_BYTES:
-                problems.append(f"image {size} bytes")
-            if page["image"].endswith(("-v1.png", "-v2.png")):
-                problems.append("image uses a retired versioned name")
+            try:
+                width, height, size = png_info(image_path)
+            except (OSError, ValueError) as exc:
+                problems.append(f"image {exc}")
+            else:
+                if (width, height) != (1200, 630):
+                    problems.append(f"image {width}x{height}")
+                if size >= MAX_IMAGE_BYTES:
+                    problems.append(f"image {size} bytes")
 
         if problems:
             failures.extend(f"{rel}: {item}" for item in problems)
@@ -342,24 +361,28 @@ def check_banned(failures: list[str], lines: list[str]) -> None:
         lines.append("  new hits  none")
 
 
-def check_retired_images(failures: list[str], lines: list[str]) -> None:
+def check_referenced_images(failures: list[str], lines: list[str]) -> None:
+    """Fail when a page points at an og image that is not in the repo."""
     lines.append("")
-    lines.append("Retired versioned images")
+    lines.append("Referenced images")
     og = ROOT / "og"
-    retired = sorted(og.glob("*-v1.png")) + sorted(og.glob("*-v2.png")) if og.is_dir() else []
-    expected = {page["image"] for page in PAGES}
-    present = {path.name for path in og.glob("*.png")} if og.is_dir() else set()
-    missing = sorted(expected - present)
-    if retired or missing:
-        for path in retired:
-            rel = path.relative_to(ROOT).as_posix()
-            failures.append("unexpected " + rel)
-            lines.append("  NEW  " + rel)
-        for name in missing:
-            failures.append("missing og/" + name)
-            lines.append("  MISSING  og/" + name)
-    else:
-        lines.append("  none")
+    v1 = sorted(og.glob("*-v1.png")) if og.is_dir() else []
+    for path in v1:
+        rel = path.relative_to(ROOT).as_posix()
+        failures.append("unexpected " + rel)
+        lines.append("  NEW  " + rel)
+    missing = False
+    for page in PAGES:
+        rel = f"og/{page['image']}"
+        path = ROOT / rel
+        if path.is_file():
+            lines.append(f"  ok   {page['path']}  {rel}")
+            continue
+        missing = True
+        failures.append(f"missing {rel}")
+        lines.append(f"  MISSING  {page['path']}  {rel}")
+    if missing:
+        lines.append("  event art is not committed; this check fails until og/og-event-v2.png lands")
 
 
 def main() -> int:
@@ -374,7 +397,7 @@ def main() -> int:
     check_install_slots(failures, lines)
     check_pages(failures, lines)
     check_banned(failures, lines)
-    check_retired_images(failures, lines)
+    check_referenced_images(failures, lines)
     lines.append("")
     if failures:
         lines.append(f"RESULT: FAIL ({len(failures)})")

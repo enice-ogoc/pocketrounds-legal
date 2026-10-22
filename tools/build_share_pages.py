@@ -23,6 +23,7 @@ TESTING = (
     "PocketRounds is in testing. Ask the person who invited you to add you "
     "as a tester, then come back and tap this link again."
 )
+AFTER_INSTALL = "After installing, open PocketRounds and paste your code."
 FALLBACK = "Enter the code from your message in the app."
 
 # label is the on-page strip. None means the generic /app page, which has no strip.
@@ -30,49 +31,49 @@ PAGES = [
     {
         "path": "/i/player/",
         "title": "PocketRounds: Player invite",
-        "image": "og-invite-player.png",
+        "image": "og-player-v2.png",
         "alt": "PocketRounds Player invite",
         "label": "Player invite",
     },
     {
         "path": "/i/member/",
         "title": "PocketRounds: Team invite",
-        "image": "og-invite-member.png",
+        "image": "og-member-v2.png",
         "alt": "PocketRounds Team invite",
         "label": "Team invite",
     },
     {
         "path": "/i/coach/",
         "title": "PocketRounds: Coach invite",
-        "image": "og-invite-coach.png",
+        "image": "og-coach-v2.png",
         "alt": "PocketRounds Coach invite",
         "label": "Coach invite",
     },
     {
         "path": "/i/sponsor/",
         "title": "PocketRounds: Sponsor admin invite",
-        "image": "og-invite-sponsor-admin.png",
+        "image": "og-sponsor-v2.png",
         "alt": "PocketRounds Sponsor admin invite",
         "label": "Sponsor admin invite",
     },
     {
         "path": "/i/host/",
         "title": "PocketRounds: Host admin invite",
-        "image": "og-invite-host-admin.png",
+        "image": "og-host-v2.png",
         "alt": "PocketRounds Host admin invite",
         "label": "Host admin invite",
     },
     {
         "path": "/i/event/",
         "title": "PocketRounds: Event invite",
-        "image": "og-invite-event.png",
+        "image": "og-event-v2.png",
         "alt": "PocketRounds Event invite",
         "label": "Event invite",
     },
     {
         "path": "/app/",
         "title": "PocketRounds: Bible Bowl practice",
-        "image": "og-share-app.png",
+        "image": "og-app-v2.png",
         "alt": "PocketRounds Bible Bowl practice",
         "label": None,
     },
@@ -88,6 +89,7 @@ def image_url(page: dict) -> str:
 
 
 def support_url() -> str:
+    # support.html is served at /support. /support/ is a 404 on this site.
     return f"{SITE}/support"
 
 
@@ -230,12 +232,12 @@ TEMPLATE = """<!DOCTYPE html>
     .store { margin-top: 0.95rem; }
     .tf { margin: 0.85rem 0 0; }
     .tf a { color: var(--accent); font-weight: 700; }
-    #fallback, .testing {
+    #fallback, .testing, .after {
       color: var(--muted);
       font-size: 1rem;
     }
     #fallback { margin: 1.35rem 0 0; }
-    .testing { margin: 0.95rem 0 0; }
+    .testing, .after { margin: 0.95rem 0 0; }
     footer { padding: 0.5rem 1.25rem 2.5rem; text-align: center; }
     footer a { color: var(--accent); font-weight: 600; }
     button:focus-visible, a:focus-visible {
@@ -262,9 +264,20 @@ TEMPLATE = """<!DOCTYPE html>
   </footer>
   <script>
     (function () {
-      var match = /^#c=([A-Za-z0-9-]{1,64})$/.exec(window.location.hash || "");
-      if (!match) return;
-      var code = match[1];
+      var pattern = /^[A-Za-z0-9-]{1,64}$/;
+      function accepted(value) {
+        return pattern.test(value) ? value : "";
+      }
+      var hash = window.location.hash || "";
+      var fragment = /^#c=(.*)$/.exec(hash);
+      var code = "";
+      if (fragment) {
+        code = accepted(fragment[1]);
+      } else {
+        var params = new URLSearchParams(window.location.search);
+        code = accepted(params.get("code") || "");
+      }
+      if (!code) return;
       var codeEl = document.getElementById("code");
       var copyBtn = document.getElementById("copy");
       var fallback = document.getElementById("fallback");
@@ -273,7 +286,9 @@ TEMPLATE = """<!DOCTYPE html>
       codeEl.hidden = false;
       copyBtn.hidden = false;
       fallback.hidden = true;
-      open.setAttribute("href", open.getAttribute("href") + "#c=" + code);
+      var base = open.getAttribute("href");
+      if (base.slice(-1) !== "/") base += "/";
+      open.setAttribute("href", base + "#c=" + code);
       copyBtn.addEventListener("click", function () {
         var done = function () { copyBtn.textContent = "Copied"; };
         if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -307,13 +322,17 @@ TEMPLATE = """<!DOCTYPE html>
 def install_block(testflight_url: str = TESTFLIGHT_PUBLIC_URL, app_store_url: str = APP_STORE_URL) -> str:
     """Button area under Open PocketRounds.
 
-    An App Store URL replaces the testing sentence. A TestFlight URL adds a
-    link only while that sentence is showing. Empty strings render neither link.
+    An App Store URL replaces the testing sentence with the App Store button
+    and the after-install sentence. A TestFlight URL adds a link only while
+    the testing sentence is showing. Empty strings render neither link.
     """
     store = app_store_url.strip()
     if store:
         href = html.escape(store, quote=True)
-        return f'<a class="store" href="{href}">App Store</a>'
+        return (
+            f'<a class="store" href="{href}">App Store</a>\n'
+            f'    <p class="after">{html.escape(AFTER_INSTALL)}</p>'
+        )
     block = f'<p class="testing">{html.escape(TESTING)}</p>'
     flight = testflight_url.strip()
     if flight:
